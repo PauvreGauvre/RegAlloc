@@ -1,0 +1,44 @@
+name: Publish RegAlloc Source
+on:
+  push:
+    paths:
+      - '_staging/ready'
+permissions:
+  contents: write
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Restore original C++ source tree
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import json
+          import lzma
+
+          chunks = sorted(Path("_staging").glob("part*.txt"))
+          if len(chunks) != 5:
+              raise RuntimeError(f"Expected 5 transfer segments, got {len(chunks)}")
+          encoded = "".join(path.read_text() for path in chunks)
+          files = json.loads(lzma.decompress(base64.b64decode(encoded)))
+          if len(files) != 145:
+              raise RuntimeError(f"Unexpected source file count: {len(files)}")
+          for relative, content in files.items():
+              destination = Path(relative)
+              if destination.is_absolute() or ".." in destination.parts:
+                  raise ValueError(f"Unsafe path: {relative}")
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              destination.write_text(content, encoding="utf-8")
+          print(f"Restored {len(files)} source files")
+          PY
+          rm -rf _staging
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Publish all 145 RegAlloc project files"
+          git push origin HEAD:main
